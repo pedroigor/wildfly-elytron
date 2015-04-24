@@ -18,18 +18,6 @@
 
 package org.wildfly.security._private;
 
-import java.io.EOFException;
-import java.io.IOException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.UnrecoverableKeyException;
-
-import javax.security.sasl.SaslClientFactory;
-import javax.security.sasl.SaslException;
-import javax.security.sasl.SaslServerFactory;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLStreamReader;
-
 import org.jboss.logging.BasicLogger;
 import org.jboss.logging.Logger;
 import org.jboss.logging.annotations.Cause;
@@ -38,7 +26,24 @@ import org.jboss.logging.annotations.Message;
 import org.jboss.logging.annotations.MessageLogger;
 import org.jboss.logging.annotations.Param;
 import org.wildfly.client.config.ConfigXMLParseException;
+import org.wildfly.security.authz.jacc.ElytronPolicyConfiguration.State;
 import org.wildfly.security.util.DecodeException;
+
+import javax.security.jacc.PolicyContextException;
+import javax.security.sasl.SaslClientFactory;
+import javax.security.sasl.SaslException;
+import javax.security.sasl.SaslServerFactory;
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLStreamReader;
+import java.io.EOFException;
+import java.io.IOException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.Permission;
+import java.security.ProtectionDomain;
+import java.security.UnrecoverableKeyException;
+
+import static org.jboss.logging.Logger.Level.ERROR;
 
 /**
  * Log messages and exceptions for Elytron.
@@ -210,4 +215,38 @@ public interface ElytronMessages extends BasicLogger {
     @Message(id = 54, value = "Invalid base 32 character")
     DecodeException invalidBase32Character();
 
+    @Message(id = 55, value = "Could not obtain PolicyConfiguration for contextID [%s].")
+    PolicyContextException authzUnableToObtainPolicyConfiguration(String contextId, @Cause Throwable cause);
+
+    @Message(id = 56, value = "Invalid policy context identifier [%s].")
+    IllegalArgumentException authzInvalidPolicyContextIdentifier(String contextID);
+
+    @Message(id = 57, value = "Invalid state [%s] for operation.")
+    UnsupportedOperationException authzInvalidStateForOperation(State actualState);
+
+    @Message(id = 58, value = "Could not obtain role mapper.")
+    IllegalStateException authzCouldNotObtainRoleMapper(@Cause Throwable cause);
+
+    @Message(id = 59, value = "Role mapper is not registered in PolicyContext.")
+    IllegalStateException authzRoleMapperNotRegistered();
+
+    @Message(id = 60, value = "Could not register role mapper.")
+    IllegalStateException authzFailToRegisterRoleMapper(@Cause Throwable cause);
+
+    @Message(id = 61, value = "ContextID not set. Check if the context id was set using PolicyContext.setContextID.")
+    IllegalStateException authzContextIdentifierNotSet();
+
+    @Message(id = 62, value = "Can't link policy configuration [%s] to itself.")
+    IllegalArgumentException authzLinkSamePolicyConfiguration(String contextID);
+
+    @Message(id = 63, value = "Policy configuration with contextID [%s] is not in service state.")
+    IllegalStateException authzPolicyConfigurationNotInService(String contextID);
+
+    @LogMessage(level = ERROR)
+    @Message(id = 64, value = "Could not obtain dynamic permissions.")
+    void authzFailedGetDynamicPermissions(@Cause Throwable cause);
+
+    @LogMessage(level = ERROR)
+    @Message(id = 65, value = "Failed to check permissions for protection domain [%s] and permission [%s].")
+    void authzFailedToCheckPermission(ProtectionDomain domain, Permission permission, @Cause Throwable cause);
 }
