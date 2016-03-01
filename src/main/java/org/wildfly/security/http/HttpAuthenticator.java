@@ -18,16 +18,21 @@
 
 package org.wildfly.security.http;
 
+import org.wildfly.security.auth.server.SecurityDomain;
+import org.wildfly.security.auth.server.SecurityIdentity;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
+
 import static org.wildfly.security._private.ElytronMessages.log;
 import static org.wildfly.security.http.HttpConstants.FORBIDDEN;
 import static org.wildfly.security.http.HttpConstants.OK;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Supplier;
-
-import org.wildfly.security.auth.server.SecurityDomain;
-import org.wildfly.security.auth.server.SecurityIdentity;
 
 
 /**
@@ -42,12 +47,14 @@ public class HttpAuthenticator {
     private final HttpExchangeSpi httpExchangeSpi;
     private final boolean required;
     private final boolean ignoreOptionalFailures;
+    private final HttpSessionSpi httpSessionSpi;
     private volatile boolean authenticated = false;
 
     private HttpAuthenticator(final Supplier<List<HttpServerAuthenticationMechanism>> mechanismSupplier, final HttpExchangeSpi httpExchangeSpi,
-            final boolean required, final boolean ignoreOptionalFailures) {
+                              HttpSessionSpi httpSessionSpi, final boolean required, final boolean ignoreOptionalFailures) {
         this.mechanismSupplier = mechanismSupplier;
         this.httpExchangeSpi = httpExchangeSpi;
+        this.httpSessionSpi = httpSessionSpi;
         this.required = required;
         this.ignoreOptionalFailures = ignoreOptionalFailures;
     }
@@ -172,6 +179,36 @@ public class HttpAuthenticator {
         }
 
         @Override
+        public String getRequestMethod() {
+            return httpExchangeSpi.getRequestMethod();
+        }
+
+        @Override
+        public String getRequestURI() {
+            return httpExchangeSpi.getRequestURI();
+        }
+
+        @Override
+        public Map<String, String[]> getQueryParameters() {
+            return httpExchangeSpi.getQueryParameters();
+        }
+
+        @Override
+        public Cookie[] getCookies() {
+            return httpExchangeSpi.getCookies();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return httpExchangeSpi.getRequestInputStream();
+        }
+
+        @Override
+        public InetSocketAddress getSourceAddress() {
+            return httpExchangeSpi.getSourceAddress();
+        }
+
+        @Override
         public void addResponseHeader(String headerName, String headerValue) {
             httpExchangeSpi.addResponseHeader(headerName, headerValue);
         }
@@ -190,13 +227,37 @@ public class HttpAuthenticator {
             }
         }
 
+        @Override
+        public OutputStream getOutputStream() {
+            return httpExchangeSpi.getResponseOutputStream();
+        }
 
+        @Override
+        public void setResponseCookie(Cookie cookie) {
+            httpExchangeSpi.setResponseCookie(cookie);
+        }
+
+        @Override
+        public HttpServerSession getSession(boolean create) {
+            return httpSessionSpi.getSession(create);
+        }
+
+        @Override
+        public HttpServerSession getSession(String id) {
+            return httpSessionSpi.getSession(id);
+        }
+
+        @Override
+        public Set<String> getSessions() {
+            return httpSessionSpi.getSessions();
+        }
     }
 
     public static class Builder {
 
         private Supplier<List<HttpServerAuthenticationMechanism>> mechanismSupplier;
         private HttpExchangeSpi httpExchangeSpi;
+        private HttpSessionSpi httpSessionSpi = HttpSessionSpi.NOT_SUPPORTED;
         private boolean required;
         private boolean ignoreOptionalFailures;
 
@@ -224,6 +285,19 @@ public class HttpAuthenticator {
          */
         public Builder setHttpExchangeSpi(final HttpExchangeSpi httpExchangeSpi) {
             this.httpExchangeSpi = httpExchangeSpi;
+
+            return this;
+        }
+
+        /**
+         * Set the {@link HttpSessionSpi} instance for the current request to allow integration with the session management capabilities
+         * provided by the underlying web container..
+         *
+         * @param httpSessionSpi the {@link HttpSessionSpi} instance for the current request
+         * @return the {@link Builder} to allow method call chaining.
+         */
+        public Builder setHttpSessionSpi(final HttpSessionSpi httpSessionSpi) {
+            this.httpSessionSpi = httpSessionSpi;
 
             return this;
         }
@@ -258,7 +332,7 @@ public class HttpAuthenticator {
         }
 
         public HttpAuthenticator build() {
-            return new HttpAuthenticator(mechanismSupplier, httpExchangeSpi, required, ignoreOptionalFailures);
+            return new HttpAuthenticator(mechanismSupplier, httpExchangeSpi, httpSessionSpi, required, ignoreOptionalFailures);
         }
 
     }

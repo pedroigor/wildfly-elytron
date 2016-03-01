@@ -17,22 +17,28 @@
  */
 package org.wildfly.security.http.util;
 
-import static org.wildfly.common.Assert.checkNotNullParam;
+import org.wildfly.security.auth.server.SecurityIdentity;
+import org.wildfly.security.http.Cookie;
+import org.wildfly.security.http.HttpAuthenticationException;
+import org.wildfly.security.http.HttpServerAuthenticationMechanism;
+import org.wildfly.security.http.HttpServerMechanismsResponder;
+import org.wildfly.security.http.HttpServerRequest;
+import org.wildfly.security.http.HttpServerResponse;
+import org.wildfly.security.http.HttpServerSession;
 
+import java.io.InputStream;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.net.InetSocketAddress;
 import java.security.AccessControlContext;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-import org.wildfly.security.auth.server.SecurityIdentity;
-import org.wildfly.security.http.HttpAuthenticationException;
-import org.wildfly.security.http.HttpServerAuthenticationMechanism;
-import org.wildfly.security.http.HttpServerMechanismsResponder;
-import org.wildfly.security.http.HttpServerRequest;
-import org.wildfly.security.http.HttpServerResponse;
+import static org.wildfly.common.Assert.checkNotNullParam;
 
 /**
  * A {@link HttpServerAuthenticationMechanism} with a stored {@link AccessControlContext} that is used for all request
@@ -123,6 +129,50 @@ final class PrivilegedServerMechanism implements HttpServerAuthenticationMechani
             wrapped.badRequest(failure, wrap(responder));
         }
 
+        @Override
+        public String getRequestMethod() {
+            return wrapped.getRequestMethod();
+        }
+
+        @Override
+        public String getRequestURI() {
+            return wrapped.getRequestURI();
+        }
+
+        @Override
+        public Map<String, String[]> getQueryParameters() {
+            return wrapped.getQueryParameters();
+        }
+
+        @Override
+        public Cookie[] getCookies() {
+            return wrapped.getCookies();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return wrapped.getInputStream();
+        }
+
+        @Override
+        public InetSocketAddress getSourceAddress() {
+            return wrapped.getSourceAddress();
+        }
+
+        @Override
+        public HttpServerSession getSession(boolean create) {
+            return wrapped.getSession(create);
+        }
+
+        @Override
+        public HttpServerSession getSession(String id) {
+            return wrapped.getSession(id);
+        }
+
+        @Override
+        public Set<String> getSessions() {
+            return wrapped.getSessions();
+        }
     }
 
 }
