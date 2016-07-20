@@ -17,24 +17,25 @@
  */
 package org.wildfly.security.http.util;
 
-import static org.wildfly.security.http.HttpConstants.SECURITY_IDENTITY;
-
-import static org.wildfly.common.Assert.checkNotNullParam;
-
-import java.io.IOException;
-import java.util.Map;
-
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
-import javax.security.auth.callback.UnsupportedCallbackException;
-
 import org.wildfly.security.auth.callback.AuthenticationCompleteCallback;
 import org.wildfly.security.auth.callback.SecurityIdentityCallback;
 import org.wildfly.security.auth.server.SecurityIdentity;
+import org.wildfly.security.auth.server.cache.CachedIdentity;
+import org.wildfly.security.auth.server.cache.IdentityCache;
 import org.wildfly.security.http.HttpAuthenticationException;
 import org.wildfly.security.http.HttpServerAuthenticationMechanism;
 import org.wildfly.security.http.HttpServerAuthenticationMechanismFactory;
 import org.wildfly.security.http.HttpServerRequest;
+
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.CallbackHandler;
+import javax.security.auth.callback.UnsupportedCallbackException;
+import javax.security.sasl.AuthorizeCallback;
+import java.io.IOException;
+import java.util.Map;
+
+import static org.wildfly.common.Assert.checkNotNullParam;
+import static org.wildfly.security.http.HttpConstants.SECURITY_IDENTITY;
 
 /**
  *
@@ -74,7 +75,31 @@ public class SecurityIdentityServerMechanismFactory implements HttpServerAuthent
 
                 @Override
                 public void evaluateRequest(HttpServerRequest request) throws HttpAuthenticationException {
+                    IdentityCache cache = delegate.getIdentityCache(request);
+
+                    if (cache != null) {
+                        CachedIdentity cachedIdentity = cache.lookup();
+
+                        if (cachedIdentity != null) {
+                            AuthorizeCallback authorizeCallback = new AuthorizeCallback(cachedIdentity.getName(), null);
+
+                            try {
+                                callbackHandler.handle(new Callback[]{authorizeCallback});
+                            } catch (Exception e) {
+                                throw new RuntimeException("Failed to retrieve identity from cache.", e);
+                            }
+                        }
+                    }
+
                     delegate.evaluateRequest(request);
+
+                    if (cache != null) {
+                        SecurityIdentity identity = (SecurityIdentity) getNegotiatedProperty(SECURITY_IDENTITY);
+
+                        if (identity != null) {
+                            cache.store(identity.getPrincipal().getName(), identity);
+                        }
+                    }
                 }
 
                 @Override

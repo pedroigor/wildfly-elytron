@@ -18,6 +18,8 @@
 
 package org.wildfly.security.http;
 
+import org.wildfly.security.auth.server.cache.IdentityCache;
+
 /**
  * Definition of a server side HTTP authentication mechanism.
  *
@@ -52,6 +54,10 @@ public interface HttpServerAuthenticationMechanism {
      * @return the value of the property or {@code null} if the specified property is not available.
      */
     default Object getNegotiatedProperty(String propertyName) {
+        return null;
+    }
+
+    default IdentityCache getIdentityCache(HttpServerRequest request) {
         return null;
     }
 
