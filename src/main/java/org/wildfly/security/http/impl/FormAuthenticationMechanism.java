@@ -39,6 +39,8 @@ import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.sasl.AuthorizeCallback;
 
+import org.wildfly.security.cache.CachedIdentity;
+import org.wildfly.security.cache.IdentityCacheProvider;
 import org.wildfly.security.http.HttpAuthenticationException;
 import org.wildfly.security.http.HttpScope;
 import org.wildfly.security.http.HttpServerMechanismsResponder;
@@ -61,7 +63,7 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
     private static final String PASSWORD = "j_password";
 
     private static final String LOCATION_KEY = FormAuthenticationMechanism.class.getName() + ".Location";
-    private static final String AUTHENTICATED_PRINCIPAL_KEY = FormAuthenticationMechanism.class.getName() + ".authenticated-principal";
+    private static final String CACHED_IDENTITY_KEY = FormAuthenticationMechanism.class.getName() + ".cached-identity";
 
     private static final String DEFAULT_POST_LOCATION = "j_security_check";
 
@@ -92,11 +94,6 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
      */
     @Override
     public void evaluateRequest(final HttpServerRequest request) throws HttpAuthenticationException {
-        // try to re-authenticate a cached principal, if any
-        if (attemptReAuthentication(request)) {
-            return;
-        }
-
         // Is current request an authentication attempt?
         if (POST.equals(request.getRequestMethod()) && request.getRequestURI().getPath().endsWith(postLocation)) {
             attemptAuthentication(request);
@@ -107,6 +104,32 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
         if (loginPage != null) {
             request.noAuthenticationInProgress((response) -> sendLogin(request, response));
         }
+    }
+
+    @Override
+    public IdentityCacheProvider getIdentityCacheProvider(HttpServerRequest request) {
+        HttpScope session = request.getScope(Scope.SESSION);
+
+        if (session == null) {
+            return null;
+        }
+
+        return new IdentityCacheProvider() {
+            @Override
+            public void put(CachedIdentity cachedIdentity) {
+                session.setAttachment(CACHED_IDENTITY_KEY, cachedIdentity);
+            }
+
+            @Override
+            public CachedIdentity get() {
+                return (CachedIdentity) session.getAttachment(CACHED_IDENTITY_KEY);
+            }
+
+            @Override
+            public void remove() {
+                session.setAttachment(CACHED_IDENTITY_KEY, null);
+            }
+        };
     }
 
     private void error(String message, HttpServerRequest request) {
@@ -131,7 +154,7 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
                     HttpScope session = request.getScope(Scope.SESSION);
                     HttpServerMechanismsResponder responder = null;
                     if (session != null) {
-                        session.setAttachment(AUTHENTICATED_PRINCIPAL_KEY, username);
+                        session.setAttachment(CACHED_IDENTITY_KEY, username);
 
                         String originalPath = session.getAttachment(LOCATION_KEY, String.class);
                         if (originalPath != null) {
@@ -163,7 +186,7 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
         // Do we have a cached identity?
         HttpScope session = request.getScope(Scope.SESSION);
         if (session != null) {
-            String principalName = session.getAttachment(AUTHENTICATED_PRINCIPAL_KEY, String.class);
+            String principalName = session.getAttachment(CACHED_IDENTITY_KEY, String.class);
             if (principalName != null) {
                 try {
                     AuthorizeCallback authorizeCallback = new AuthorizeCallback(principalName, null);
@@ -174,7 +197,7 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
                         request.resumeRequest();
                         return true;
                     }
-                    session.setAttachment(AUTHENTICATED_PRINCIPAL_KEY, null);
+                    session.setAttachment(CACHED_IDENTITY_KEY, null);
                 } catch (IOException | UnsupportedCallbackException e) {
                     throw new HttpAuthenticationException(e);
                 }
@@ -186,7 +209,7 @@ class FormAuthenticationMechanism extends UsernamePasswordAuthenticationMechanis
     private void failAndRedirectToErrorPage(HttpServerRequest request, String username) throws IOException, UnsupportedCallbackException {
         HttpScope session = request.getScope(Scope.SESSION);
         if (session != null) {
-            session.setAttachment(AUTHENTICATED_PRINCIPAL_KEY, null);
+            session.setAttachment(CACHED_IDENTITY_KEY, null);
         }
         fail();
         error(log.authorizationFailed(username, FORM_NAME), request);

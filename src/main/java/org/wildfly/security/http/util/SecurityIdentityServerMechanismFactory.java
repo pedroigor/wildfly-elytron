@@ -27,10 +27,13 @@ import java.util.Map;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.UnsupportedCallbackException;
+import javax.security.sasl.AuthorizeCallback;
 
 import org.wildfly.security.auth.callback.AuthenticationCompleteCallback;
 import org.wildfly.security.auth.callback.SecurityIdentityCallback;
 import org.wildfly.security.auth.server.SecurityIdentity;
+import org.wildfly.security.cache.CachedIdentity;
+import org.wildfly.security.cache.IdentityCacheProvider;
 import org.wildfly.security.http.HttpAuthenticationException;
 import org.wildfly.security.http.HttpServerAuthenticationMechanism;
 import org.wildfly.security.http.HttpServerAuthenticationMechanismFactory;
@@ -74,7 +77,50 @@ public class SecurityIdentityServerMechanismFactory implements HttpServerAuthent
 
                 @Override
                 public void evaluateRequest(HttpServerRequest request) throws HttpAuthenticationException {
-                    delegate.evaluateRequest(request);
+                    if (!tryRestoreCachedIdentity(request)) {
+                        delegate.evaluateRequest(request);
+                        cacheSecurityIdentity(request);
+                    }
+                }
+
+                private void cacheSecurityIdentity(HttpServerRequest request) {
+                    IdentityCacheProvider identityCacheProvider = delegate.getIdentityCacheProvider(request);
+
+                    if (identityCacheProvider != null) {
+                        SecurityIdentity securityIdentity = (SecurityIdentity) getNegotiatedProperty(SECURITY_IDENTITY);
+
+                        if (securityIdentity != null) {
+                            identityCacheProvider.put(new CachedIdentity(securityIdentity));
+                        }
+                    }
+                }
+
+                private boolean tryRestoreCachedIdentity(HttpServerRequest request) throws HttpAuthenticationException {
+                    IdentityCacheProvider cacheProvider = delegate.getIdentityCacheProvider(request);
+
+                    if (cacheProvider != null) {
+                        CachedIdentity cachedIdentity = cacheProvider.get();
+
+                        if (cachedIdentity != null) {
+                            AuthorizeCallback authorizeCallback = new AuthorizeCallback(cachedIdentity.getName(), null);
+
+                            try {
+                                securityIdentityCallbackHandler.handle(new Callback[] {authorizeCallback});
+
+                                if (authorizeCallback.isAuthorized()) {
+                                    securityIdentityCallbackHandler.handle(new Callback[] { AuthenticationCompleteCallback.SUCCEEDED });
+                                    request.authenticationComplete();
+                                    return true;
+                                }
+
+                                cacheProvider.remove();
+                            } catch (IOException | UnsupportedCallbackException e) {
+                                throw new HttpAuthenticationException(e);
+                            }
+                        }
+                    }
+
+                    return false;
                 }
 
                 @Override
