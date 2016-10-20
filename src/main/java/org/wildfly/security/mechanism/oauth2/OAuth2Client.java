@@ -62,12 +62,12 @@ public class OAuth2Client {
         assertTrue(credentialCallback.isCredentialTypeSupported(BearerTokenCredential.class));
 
         BearerTokenCredential credential = credentialCallback.getCredential(BearerTokenCredential.class);
-        final String token = credential.getToken();
 
-        if (token == null) {
+        if (credential == null || credential.getToken() == null) {
             throw ElytronMessages.log.mechNoTokenGiven(this.mechanismName);
         }
 
+        final String token = credential.getToken();
         final ByteStringBuilder encoded = new ByteStringBuilder();
 
         encoded.append("n").append(",");

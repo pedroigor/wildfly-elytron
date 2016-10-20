@@ -459,12 +459,6 @@ public interface ElytronMessages extends BasicLogger {
     @Message(id = 1105, value = "OAuth2-based realm failed to introspect token")
     RealmUnavailableException tokenRealmOAuth2TokenIntrospectionFailed(@Cause Throwable cause);
 
-    @Message(id = 1106, value = "OAuth2-based realm requires a SSLContext when the token introspection endpoint [%s] is using SSL/TLS.")
-    IllegalStateException tokenRealmOAuth2SSLContextNotSpecified(URL tokenIntrospectionUrl);
-
-    @Message(id = 1107, value = "OAuth2-based realm requires a HostnameVerifier when the token introspection endpoint [%s] is using SSL/TLS.")
-    IllegalStateException tokenRealmOAuth2HostnameVerifierNotSpecified(URL tokenIntrospectionUrl);
-
     @Message(id = 1108, value = "Ldap-backed realm identity search failed")
     RuntimeException ldapRealmIdentitySearchFailed(@Cause Throwable cause);
 
@@ -712,6 +706,15 @@ public interface ElytronMessages extends BasicLogger {
 
     @Message(id = 3024, value = "Unsupported key encoding format [%s]")
     IllegalArgumentException publicKeyUnsupportedEncodingFormat(String format);
+
+    @Message(id = 3025, value = "Unexpected response from server.")
+    RuntimeException httpClientUnexpectedResponseFromServer(@Cause Throwable cause);
+
+    @Message(id = 3026, value = "SSLContext required when the server [%s] is using SSL/TLS.")
+    IllegalStateException httpClientSSLContextNotSpecified(URL tokenIntrospectionUrl);
+
+    @Message(id = 3027, value = "HostnameVerifier required when the server [%s] is using SSL/TLS.")
+    IllegalStateException httpClientHostnameVerifierNotSpecified(URL tokenIntrospectionUrl);
 
     /* ssl package */
 

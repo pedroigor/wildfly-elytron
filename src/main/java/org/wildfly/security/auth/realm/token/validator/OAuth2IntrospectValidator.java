@@ -18,33 +18,21 @@
 
 package org.wildfly.security.auth.realm.token.validator;
 
-import org.wildfly.common.Assert;
-import org.wildfly.security.auth.realm.token.TokenValidator;
-import org.wildfly.security.auth.server.RealmUnavailableException;
-import org.wildfly.security.authz.Attributes;
-import org.wildfly.security.evidence.BearerTokenEvidence;
-import org.wildfly.security.util.ByteStringBuilder;
-import org.wildfly.security.util.CodePointIterator;
+import static org.wildfly.common.Assert.checkNotNullParam;
+import static org.wildfly.security._private.ElytronMessages.log;
+import static org.wildfly.security.util.JsonUtil.toAttributes;
 
 import javax.json.Json;
 import javax.json.JsonObject;
 import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.UnsupportedEncodingException;
-import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.HashMap;
-import java.util.Map;
 
-import static org.wildfly.security._private.ElytronMessages.log;
-import static org.wildfly.security.util.JsonUtil.toAttributes;
+import org.wildfly.security.auth.realm.token.TokenValidator;
+import org.wildfly.security.auth.server.RealmUnavailableException;
+import org.wildfly.security.authz.Attributes;
+import org.wildfly.security.evidence.BearerTokenEvidence;
+import org.wildfly.security.util.HttpClient;
 
 /**
  * A RFC-7662 (OAuth2 Token Introspection) compliant {@link TokenValidator}.
@@ -69,17 +57,17 @@ public class OAuth2IntrospectValidator implements TokenValidator {
     private final HostnameVerifier hostnameVerifier;
 
     OAuth2IntrospectValidator(Builder configuration) {
-        this.tokenIntrospectionUrl = Assert.checkNotNullParam("tokenIntrospectionUrl", configuration.tokenIntrospectionUrl);
-        this.clientId = Assert.checkNotNullParam("clientId", configuration.clientId);
-        this.clientSecret = Assert.checkNotNullParam("clientSecret", configuration.clientSecret);
+        this.tokenIntrospectionUrl = checkNotNullParam("tokenIntrospectionUrl", configuration.tokenIntrospectionUrl);
+        this.clientId = checkNotNullParam("clientId", configuration.clientId);
+        this.clientSecret = checkNotNullParam("clientSecret", configuration.clientSecret);
 
         if (tokenIntrospectionUrl.getProtocol().equalsIgnoreCase("https")) {
             if (configuration.sslContext == null) {
-                throw log.tokenRealmOAuth2SSLContextNotSpecified(tokenIntrospectionUrl);
+                throw log.httpClientSSLContextNotSpecified(tokenIntrospectionUrl);
             }
 
             if (configuration.hostnameVerifier == null) {
-                throw log.tokenRealmOAuth2HostnameVerifierNotSpecified(tokenIntrospectionUrl);
+                throw log.httpClientHostnameVerifierNotSpecified(tokenIntrospectionUrl);
             }
         }
 
@@ -89,7 +77,7 @@ public class OAuth2IntrospectValidator implements TokenValidator {
 
     @Override
     public Attributes validate(BearerTokenEvidence evidence) throws RealmUnavailableException {
-        Assert.checkNotNullParam("evidence", evidence);
+        checkNotNullParam("evidence", evidence);
 
         try {
             JsonObject claims = introspectAccessToken(this.tokenIntrospectionUrl,
@@ -121,98 +109,24 @@ public class OAuth2IntrospectValidator implements TokenValidator {
      * @return a @{JsonObject} representing the response from the introspection endpoint or null if
      */
     private JsonObject introspectAccessToken(URL tokenIntrospectionUrl, String clientId, String clientSecret, String token, SSLContext sslContext, HostnameVerifier hostnameVerifier) throws RealmUnavailableException {
-        Assert.checkNotNullParam("clientId", clientId);
-        Assert.checkNotNullParam("clientSecret", clientSecret);
-        Assert.checkNotNullParam("token", token);
-
-        HttpURLConnection connection = null;
+        checkNotNullParam("token", token);
 
         try {
-            connection = openConnection(tokenIntrospectionUrl, sslContext, hostnameVerifier);
-
-            HashMap<String, String> parameters = new HashMap<>();
-
-            parameters.put("token", token);
-            parameters.put("token_type_hint", "access_token");
-
-            byte[] params = buildParameters(parameters);
-
-            connection.setDoOutput(true);
-            connection.setRequestMethod("POST");
-            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            connection.setRequestProperty("Content-Length", String.valueOf(params.length));
-            connection.setRequestProperty("Authorization", "Basic " + CodePointIterator.ofString(clientId + ":" + clientSecret).asUtf8().base64Encode().drainToString());
-
-            try (OutputStream outputStream = connection.getOutputStream()) {
-                outputStream.write(params);
-            }
-
-            try (InputStream inputStream = new BufferedInputStream(connection.getInputStream())) {
-                return Json.createReader(inputStream).readObject();
-            }
-        } catch (IOException ioe) {
-            if (connection != null && connection.getErrorStream() != null) {
-                InputStream errorStream = connection.getErrorStream();
-
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream))) {
-                    StringBuffer response = reader.lines().reduce(new StringBuffer(), StringBuffer::append, (buffer1, buffer2) -> buffer1);
-                    log.errorf(ioe, "Unexpected response from token introspection endpoint [%s]. Response: [%s]", tokenIntrospectionUrl, response);
-                } catch (IOException e) {
-                    throw log.tokenRealmOAuth2TokenIntrospectionFailed(ioe);
-                }
-            } else {
-                throw log.tokenRealmOAuth2TokenIntrospectionFailed(ioe);
-            }
-        } catch (Exception e) {
-            throw log.tokenRealmOAuth2TokenIntrospectionFailed(e);
+            return HttpClient.builder().sslContext(sslContext).hostNameVerifier(hostnameVerifier).build()
+                    .post(tokenIntrospectionUrl)
+                        .header(HttpClient.HttpHeader.contentType("application/x-www-form-urlencoded"))
+                        .header(HttpClient.HttpHeader.authorizationBasic(clientId, clientSecret))
+                        .param("token", token)
+                        .param("token_type_hint", "access_token")
+                        .execute((inputStream, throwable) -> {
+                            if (throwable != null) {
+                                throw log.httpClientUnexpectedResponseFromServer(throwable);
+                            }
+                            return Json.createReader(inputStream).readObject();
+                        });
+        } catch (Exception cause) {
+            throw log.tokenRealmOAuth2TokenIntrospectionFailed(cause);
         }
-
-        return null;
-    }
-
-    private HttpURLConnection openConnection(URL url, SSLContext sslContext, HostnameVerifier hostnameVerifier) throws IOException {
-        Assert.checkNotNullParam("url", url);
-
-        boolean isHttps = url.getProtocol().equalsIgnoreCase("https");
-
-        if (isHttps) {
-            if (sslContext == null) {
-                throw log.tokenRealmOAuth2SSLContextNotSpecified(url);
-            }
-
-            if (hostnameVerifier == null) {
-                throw log.tokenRealmOAuth2HostnameVerifierNotSpecified(url);
-            }
-        }
-
-        try {
-            log.debugf("Opening connection to token introspection endpoint [%s]", url);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-
-            if (isHttps) {
-                HttpsURLConnection https = (HttpsURLConnection) connection;
-
-                https.setSSLSocketFactory(sslContext.getSocketFactory());
-                https.setHostnameVerifier(hostnameVerifier);
-            }
-
-            return connection;
-        } catch (IOException cause) {
-            throw cause;
-        }
-    }
-
-    private byte[] buildParameters(Map<String, String> parameters) throws UnsupportedEncodingException {
-        ByteStringBuilder params = new ByteStringBuilder();
-
-        parameters.entrySet().stream().forEach(entry -> {
-            if (params.length() > 0) {
-                params.append('&');
-            }
-            params.append(entry.getKey()).append('=').append(entry.getValue());
-        });
-
-        return params.toArray();
     }
 
     public static class Builder {
