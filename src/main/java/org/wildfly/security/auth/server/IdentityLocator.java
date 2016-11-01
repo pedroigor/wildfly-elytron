@@ -21,6 +21,7 @@ package org.wildfly.security.auth.server;
 import static org.wildfly.security._private.ElytronMessages.log;
 
 import java.security.Principal;
+import java.util.Objects;
 
 import org.wildfly.common.Assert;
 import org.wildfly.security.auth.principal.NamePrincipal;
@@ -149,6 +150,21 @@ public final class IdentityLocator {
     public static IdentityLocator fromPrincipal(Principal principal) {
         Assert.checkNotNullParam("principal", principal);
         return new IdentityLocator(principal instanceof NamePrincipal ? principal.getName() : null, principal, null);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        IdentityLocator that = (IdentityLocator) o;
+        return Objects.equals(name, that.name) &&
+                Objects.equals(principal, that.principal) &&
+                Objects.equals(evidence, that.evidence);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, principal, evidence);
     }
 
     /**
