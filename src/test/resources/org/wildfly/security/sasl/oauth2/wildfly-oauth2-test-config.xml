@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  ~ JBoss, Home of Professional Open Source.
+  ~ Copyright 2016 Red Hat, Inc., and individual contributors
+  ~ as indicated by the @author tags.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+
+<configuration>
+    <authentication-client xmlns="urn:elytron:1.0">
+        <rules>
+            <rule>
+                <match-host name="test1.org"/>
+                <set-bearer-token name="oauth2-resource-owner-credentials"/>
+                <set-user-name name="alice"/>
+                <clear-password password="dont_tell_me"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
+            <rule>
+                <match-host name="test2.org"/>
+                <set-bearer-token name="oauth2-client-credentials"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
+            <rule>
+                <match-host name="test3.org"/>
+                <set-bearer-token name="oauth2-resource-owner-credentials"/>
+                <set-user-name name="alice"/>
+                <clear-password password="wrong_password"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
+            <rule>
+                <match-host name="test4.org"/>
+                <set-bearer-token name="oauth2-resource-owner-credentials"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
+            <rule>
+                <match-host name="test5.org"/>
+                <set-bearer-token name="user-provided"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
+            <rule>
+                <match-host name="test6.org"/>
+                <set-bearer-token name="oauth2-invalid-client-credentials"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
+        </rules>
+        <bearer-tokens>
+            <bearer-token name="user-provided" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaXNzIjoiYXV0aC5zZXJ2ZXIiLCJhdWQiOiJmb3JfbWUiLCJleHAiOjE3NjA5OTE2MzUsInByZWZlcnJlZF91c2VybmFtZSI6Impkb2UifQ.SoPW41_mOFnKXdkwVG63agWQ2k09dEnEtTBztnxHN64"/>
+            <oauth2-bearer-token name="oauth2-resource-owner-credentials" token-endpoint-uri="http://localhost:50831/token">
+                <client-secret-basic id="elytron-client" secret="dont_tell_me_ro"/>
+                <resource-owner-credentials/>
+            </oauth2-bearer-token>
+            <oauth2-bearer-token name="oauth2-client-credentials" token-endpoint-uri="http://localhost:50831/token">
+                <client-secret-basic id="elytron-client" secret="dont_tell_me"/>
+            </oauth2-bearer-token>
+            <oauth2-bearer-token name="oauth2-invalid-client-credentials" token-endpoint-uri="http://localhost:50831/token">
+                <client-secret-basic id="elytron-client" secret="wrong_secret"/>
+            </oauth2-bearer-token>
+        </bearer-tokens>
+    </authentication-client>
+</configuration>

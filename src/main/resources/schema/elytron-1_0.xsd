@@ -83,6 +83,7 @@
     <xsd:complexType name="authentication-client-type">
         <xsd:all>
             <xsd:element name="key-stores" type="key-stores-type" minOccurs="0"/>
+            <xsd:element name="bearer-tokens" type="bearer-tokens-type" minOccurs="0"/>
             <xsd:element name="rules" type="authentication-client-rules-type" minOccurs="0"/>
             <xsd:element name="net-authenticator" type="empty-type" minOccurs="0"/>
             <xsd:element name="ssl-context-rules" type="ssl-context-rules-type" minOccurs="0"/>
@@ -152,6 +153,7 @@
                     <xsd:element name="set-anonymous" type="empty-type" minOccurs="0"/>
                 </xsd:choice>
                 <xsd:element name="set-mechanism-realm" type="optional-name-type" minOccurs="0"/>
+                <xsd:element name="set-bearer-token" type="name-type" minOccurs="0"/>
                 <xsd:element name="rewrite-user-name-regex" type="regex-substitution-type" minOccurs="0"/>
                 <xsd:element name="allow-all-sasl-mechanisms" type="empty-type" minOccurs="0"/>
                 <xsd:element name="allow-sasl-mechanisms" type="names-list-type" minOccurs="0"/>
@@ -203,6 +205,33 @@
         <xsd:attribute name="key-store-name" type="xsd:string" use="required"/>
         <xsd:attribute name="alias" type="xsd:string" use="required"/>
     </xsd:complexType>
+
+    <xsd:complexType name="bearer-tokens-type">
+        <xsd:choice minOccurs="1" maxOccurs="unbounded">
+            <xsd:element name="bearer-token" type="bearer-token-type" maxOccurs="unbounded"/>
+            <xsd:element name="oauth2-bearer-token" type="oauth2-bearer-token-type" maxOccurs="unbounded"/>
+        </xsd:choice>
+    </xsd:complexType>
+
+    <xsd:complexType name="bearer-token-type">
+        <xsd:attribute name="name" type="xsd:string" use="required" />
+        <xsd:attribute name="value" type="xsd:string" use="required" />
+    </xsd:complexType>
+
+    <xsd:complexType name="oauth2-bearer-token-type">
+        <xsd:choice minOccurs="1">
+            <xsd:element name="client-secret-basic" type="client-secret-basic-type" minOccurs="1" maxOccurs="1"/>
+            <xsd:element name="resource-owner-credentials" type="empty-type" minOccurs="0" maxOccurs="1"/>
+        </xsd:choice>
+        <xsd:attribute name="name" type="xsd:string" use="required" />
+        <xsd:attribute name="token-endpoint-uri" type="xsd:anyURI" use="required" />
+    </xsd:complexType>
+
+    <xsd:complexType name="client-secret-basic-type">
+        <xsd:attribute name="id" type="xsd:string" use="required" />
+        <xsd:attribute name="secret" type="xsd:string" use="required" />
+    </xsd:complexType>
+
 
     <!-- Common types -->
 

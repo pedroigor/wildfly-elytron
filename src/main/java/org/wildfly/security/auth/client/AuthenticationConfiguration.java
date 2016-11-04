@@ -67,6 +67,7 @@ import org.wildfly.security.auth.principal.AnonymousPrincipal;
 import org.wildfly.security.auth.principal.NamePrincipal;
 import org.wildfly.security.auth.server.IdentityCredentials;
 import org.wildfly.security.auth.server.NameRewriter;
+import org.wildfly.security.credential.BearerTokenCredential;
 import org.wildfly.security.credential.PasswordCredential;
 import org.wildfly.security.auth.server.SecurityDomain;
 import org.wildfly.security.password.Password;
@@ -733,6 +734,10 @@ public abstract class AuthenticationConfiguration {
 
     public AuthenticationConfiguration useRealm(String realm) {
         return new SetRealmAuthenticationConfiguration(this, realm);
+    }
+
+    public final AuthenticationConfiguration useBearerTokenCredential(BearerTokenCredential credential) {
+        return useCredentials(IdentityCredentials.NONE.withCredential(credential));
     }
 
     // client methods
