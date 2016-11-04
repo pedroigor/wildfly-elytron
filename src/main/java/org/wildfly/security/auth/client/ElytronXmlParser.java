@@ -54,6 +54,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.SSLContext;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.CallbackHandler;
 
 import org.jboss.modules.Module;
 import org.jboss.modules.ModuleIdentifier;
@@ -65,9 +67,13 @@ import org.wildfly.common.function.ExceptionUnaryOperator;
 import org.wildfly.security.FixedSecurityFactory;
 import org.wildfly.security.OneTimeSecurityFactory;
 import org.wildfly.security.SecurityFactory;
+import org.wildfly.security.auth.callback.CredentialCallback;
+import org.wildfly.security.auth.callback.OAuth2ClientCredentialsCallbackHandler;
+import org.wildfly.security.auth.callback.OAuth2ResourceOwnerCredentialsCallbackHandler;
 import org.wildfly.security.auth.server.NameRewriter;
 import org.wildfly.security.auth.util.ElytronAuthenticator;
 import org.wildfly.security.auth.util.RegexNameRewriter;
+import org.wildfly.security.credential.BearerTokenCredential;
 import org.wildfly.security.credential.X509CertificateChainPrivateCredential;
 import org.wildfly.security.keystore.PasswordEntry;
 import org.wildfly.security.keystore.WrappingPasswordKeyStore;
@@ -182,9 +188,11 @@ public final class ElytronXmlParser {
         SecurityFactory<RuleNode<SecurityFactory<SSLContext>>> sslFactory = null;
         Map<String, SecurityFactory<KeyStore>> keyStoresMap = new HashMap<>();
         Map<String, SecurityFactory<SSLContext>> sslContextsMap = new HashMap<>();
+        Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap = new HashMap<>();
         boolean keyStores = false;
         boolean sslContexts = false;
         boolean netAuthenticator = false;
+        boolean bearerTokens = false;
         while (reader.hasNext()) {
             final int tag = reader.nextTag();
             if (tag == START_ELEMENT) {
@@ -194,7 +202,7 @@ public final class ElytronXmlParser {
                         if (authFactory != null) {
                             throw reader.unexpectedElement();
                         }
-                        authFactory = parseAuthenticationClientRulesType(reader, keyStoresMap);
+                        authFactory = parseAuthenticationClientRulesType(reader, keyStoresMap, bearerTokensMap);
                         break;
                     }
                     case "ssl-context-rules": {
@@ -226,6 +234,14 @@ public final class ElytronXmlParser {
                         }
                         netAuthenticator = true;
                         parseEmptyType(reader);
+                        break;
+                    }
+                    case "bearer-tokens": {
+                        if (bearerTokens) {
+                            throw reader.unexpectedElement();
+                        }
+                        bearerTokens = true;
+                        parseBearerTokensType(reader, bearerTokensMap);
                         break;
                     }
                     default: throw reader.unexpectedElement();
@@ -428,10 +444,11 @@ public final class ElytronXmlParser {
      *
      * @param reader the XML stream reader
      * @param keyStoresMap the map of key stores to use
+     * @param bearerTokensMap the map of bearer tokens to use
      * @return the authentication configuration factory
      * @throws ConfigXMLParseException if the resource failed to be parsed
      */
-    static SecurityFactory<RuleNode<AuthenticationConfiguration>> parseAuthenticationClientRulesType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<KeyStore>> keyStoresMap) throws ConfigXMLParseException {
+    static SecurityFactory<RuleNode<AuthenticationConfiguration>> parseAuthenticationClientRulesType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<KeyStore>> keyStoresMap, Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap) throws ConfigXMLParseException {
         requireNoAttributes(reader);
         final List<ExceptionUnaryOperator<RuleNode<AuthenticationConfiguration>, GeneralSecurityException>> rulesList = new ArrayList<>();
         while (reader.hasNext()) {
@@ -440,7 +457,7 @@ public final class ElytronXmlParser {
                 checkElementNamespace(reader);
                 switch (reader.getLocalName()) {
                     case "rule": {
-                        rulesList.add(parseAuthenticationClientRuleType(reader, keyStoresMap));
+                        rulesList.add(parseAuthenticationClientRuleType(reader, keyStoresMap, bearerTokensMap));
                         break;
                     }
                     default: throw reader.unexpectedElement();
@@ -467,9 +484,10 @@ public final class ElytronXmlParser {
      *
      * @param reader the XML stream reader
      * @param keyStoresMap the map of key stores to use
+     * @param bearerTokensMap the map of bearer tokens to use
      * @throws ConfigXMLParseException if the resource failed to be parsed
      */
-    static ExceptionUnaryOperator<RuleNode<AuthenticationConfiguration>, GeneralSecurityException> parseAuthenticationClientRuleType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<KeyStore>> keyStoresMap) throws ConfigXMLParseException {
+    static ExceptionUnaryOperator<RuleNode<AuthenticationConfiguration>, GeneralSecurityException> parseAuthenticationClientRuleType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<KeyStore>> keyStoresMap, Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap) throws ConfigXMLParseException {
         requireNoAttributes(reader);
         ExceptionUnaryOperator<AuthenticationConfiguration, GeneralSecurityException> configuration = ignored -> AuthenticationConfiguration.EMPTY;
         if (! reader.hasNext()) {
@@ -587,6 +605,13 @@ public final class ElytronXmlParser {
                         foundBits = setBit(foundBits, 12);
                         final Module module = parseModuleRefType(reader);
                         configuration = andThenOp(configuration, parentConfig -> parentConfig.useProviders(new ServiceLoaderSupplier<Provider>(Provider.class, module.getClassLoader())));
+                        break;
+                    }
+                    case "set-bearer-token": {
+                        if (isSet(foundBits, 12)) throw reader.unexpectedElement();
+                        foundBits = setBit(foundBits, 12);
+                        final SecurityFactory<CallbackHandler> factory = parseBearerTokenRefType(reader, bearerTokensMap);
+                        configuration = andThenOp(configuration, parentConfig -> new SetConfigurationCallbackConfiguration(parentConfig, factory.create()));
                         break;
                     }
                     default: {
@@ -1362,6 +1387,291 @@ public final class ElytronXmlParser {
             }
         }
 
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code set-bearer-token} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @return the bearer token entry factory
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    public static SecurityFactory<CallbackHandler> parseBearerTokenRefType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        String name = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            final String attributeNamespace = reader.getAttributeNamespace(i);
+            if (attributeNamespace != null && ! attributeNamespace.isEmpty()) {
+                throw reader.unexpectedAttribute(i);
+            }
+            switch (reader.getAttributeLocalName(i)) {
+                case "name": {
+                    if (name != null) throw reader.unexpectedAttribute(i);
+                    name = reader.getAttributeValue(i);
+                    break;
+                }
+                default:
+
+            }
+        }
+        if (name == null) {
+            throw missingAttribute(reader, "name");
+        }
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                throw reader.unexpectedElement();
+            } else if (tag == END_ELEMENT) {
+                String finalName = name;
+                return () -> callbacks -> {
+                    SecurityFactory<CallbackHandler> bearerTokenCallbackHandler = bearerTokensMap.get(finalName);
+                    if (bearerTokenCallbackHandler == null) {
+                        throw xmlLog.unknownBearerTokenConfigSpecified(finalName);
+                    }
+                    try {
+                        bearerTokenCallbackHandler.create().handle(callbacks);
+                    } catch (GeneralSecurityException e) {
+                        throw xmlLog.unableToCreateBearerTokenCallbackHandler(finalName, e);
+                    }
+                };
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code bearer-tokens-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    public static void parseBearerTokensType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        if (attributeCount > 0) {
+            throw reader.unexpectedAttribute(0);
+        }
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                switch (reader.getNamespaceURI()) {
+                    case NS_ELYTRON_1_0: break;
+                    default: throw reader.unexpectedElement();
+                }
+                switch (reader.getLocalName()) {
+                    case "bearer-token": {
+                        parseBearerTokenType(reader, bearerTokensMap);
+                        break;
+                    }
+                    case "oauth2-bearer-token": {
+                        parseOAuth2BearerTokenType(reader, bearerTokensMap);
+                        break;
+                    }
+                    default: throw reader.unexpectedElement();
+                }
+            } else if (tag == END_ELEMENT) {
+                return;
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code bearer-token-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    public static void parseBearerTokenType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        String name = null;
+        String value = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            final String attributeNamespace = reader.getAttributeNamespace(i);
+            if (attributeNamespace != null && ! attributeNamespace.isEmpty()) {
+                throw reader.unexpectedAttribute(i);
+            }
+            switch (reader.getAttributeLocalName(i)) {
+                case "name": {
+                    if (name != null) throw reader.unexpectedAttribute(i);
+                    name = reader.getAttributeValue(i);
+                    break;
+                }
+                case "value": {
+                    if (value != null) throw reader.unexpectedAttribute(i);
+                    value = reader.getAttributeValue(i);
+                    break;
+                }
+                default:
+            }
+        }
+        if (name == null) {
+            throw missingAttribute(reader, "name");
+        }
+        if (value == null) {
+            throw missingAttribute(reader, "value");
+        }
+        final BearerTokenCredential credential = new BearerTokenCredential(value);
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                throw reader.unexpectedElement();
+            } else if (tag == END_ELEMENT) {
+                bearerTokensMap.put(name, () -> (CallbackHandler) callbacks -> {
+                    for (Callback callback : callbacks) {
+                        if (callback instanceof CredentialCallback) {
+                            CredentialCallback credentialCallback = (CredentialCallback) callback;
+                            if (credentialCallback.isCredentialTypeSupported(BearerTokenCredential.class)) {
+                                credentialCallback.setCredential(credential);
+                            }
+                        }
+                    }
+                });
+                return;
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code oauth2-bearer-token-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    public static void parseOAuth2BearerTokenType(ConfigurationXMLStreamReader reader, final Map<String, SecurityFactory<CallbackHandler>> bearerTokensMap) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        String name = null;
+        URI tokenEndpointUri = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            final String attributeNamespace = reader.getAttributeNamespace(i);
+            if (attributeNamespace != null && ! attributeNamespace.isEmpty()) {
+                throw reader.unexpectedAttribute(i);
+            }
+            switch (reader.getAttributeLocalName(i)) {
+                case "name": {
+                    if (name != null) throw reader.unexpectedAttribute(i);
+                    name = reader.getAttributeValue(i);
+                    break;
+                }
+                case "token-endpoint-uri": {
+                    if (tokenEndpointUri != null) throw reader.unexpectedAttribute(i);
+                    tokenEndpointUri = reader.getURIAttributeValue(i);
+                    break;
+                }
+                default:
+            }
+        }
+        if (name == null) {
+            throw missingAttribute(reader, "name");
+        }
+        if (tokenEndpointUri == null) {
+            throw missingAttribute(reader, "token-endpoint-uri");
+        }
+        Map<String, String> credentials = null;
+        boolean resourceOwnerCredentialsGrantType = false;
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                switch (reader.getNamespaceURI()) {
+                    case NS_ELYTRON_1_0: break;
+                    default: throw reader.unexpectedElement();
+                }
+                switch (reader.getLocalName()) {
+                    case "client-secret-basic": {
+                        credentials = parseOAuth2ClientSecretBasicType(reader);
+                        break;
+                    }
+                    case "resource-owner-credentials": {
+                        resourceOwnerCredentialsGrantType = true;
+                        parseEmptyType(reader);
+                        break;
+                    }
+                    default: throw reader.unexpectedElement();
+                }
+            } else if (tag == END_ELEMENT) {
+                if (credentials == null) {
+                    throw reader.missingRequiredElement(NS_ELYTRON_1_0, "client-credentials-basic");
+                }
+                String clientId = credentials.get("client_id");
+                String clientSecret = credentials.get("client_secret");
+                boolean resourceOwnerCredentialsGrantType1 = resourceOwnerCredentialsGrantType;
+                URI finalTokenEndpointUri = tokenEndpointUri;
+                bearerTokensMap.put(name, (SecurityFactory<CallbackHandler>) () -> {
+                    if (resourceOwnerCredentialsGrantType1) {
+                        return new OAuth2ResourceOwnerCredentialsCallbackHandler(finalTokenEndpointUri, clientId, clientSecret);
+                    }
+                    return new OAuth2ClientCredentialsCallbackHandler(finalTokenEndpointUri, clientId, clientSecret);
+                });
+                return;
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code client-secret-basic-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @return  a map holding the client credentials
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    public static Map<String, String> parseOAuth2ClientSecretBasicType(ConfigurationXMLStreamReader reader) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        String id = null;
+        String secret = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            final String attributeNamespace = reader.getAttributeNamespace(i);
+            if (attributeNamespace != null && ! attributeNamespace.isEmpty()) {
+                throw reader.unexpectedAttribute(i);
+            }
+            switch (reader.getAttributeLocalName(i)) {
+                case "id": {
+                    if (id != null) throw reader.unexpectedAttribute(i);
+                    id = reader.getAttributeValue(i);
+                    break;
+                }
+                case "secret": {
+                    if (secret != null) throw reader.unexpectedAttribute(i);
+                    secret = reader.getAttributeValue(i);
+                    break;
+                }
+                default:
+            }
+        }
+        if (id == null) {
+            throw missingAttribute(reader, "id");
+        }
+        if (secret == null) {
+            throw missingAttribute(reader, "secret");
+        }
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                    throw reader.unexpectedElement();
+            } else if (tag == END_ELEMENT) {
+                HashMap<String, String> credentials = new HashMap<>();
+
+                credentials.put("client_id", id);
+                credentials.put("client_secret", secret);
+
+                return credentials;
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
         throw reader.unexpectedDocumentEnd();
     }
 
