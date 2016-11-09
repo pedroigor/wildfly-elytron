@@ -49,6 +49,7 @@ import org.wildfly.security.auth.client.AuthenticationContext;
 import org.wildfly.security.auth.client.AuthenticationContextConfigurationClient;
 import org.wildfly.security.auth.realm.token.TokenSecurityRealm;
 import org.wildfly.security.auth.realm.token.validator.JwtValidator;
+import org.wildfly.security.auth.server.RealmUnavailableException;
 import org.wildfly.security.auth.server.SecurityRealm;
 import org.wildfly.security.credential.BearerTokenCredential;
 import org.wildfly.security.sasl.test.BaseTestCase;
@@ -207,6 +208,32 @@ public class OAuth2SaslClientTest extends BaseTestCase {
 
         assertTrue(saslServer.isComplete());
         assertTrue(saslClient.isComplete());
+    }
+
+    @Test
+    public void failedWithBearerTokenFromConfiguration() throws Exception {
+        SaslClient saslClient = createSaslClientFromConfiguration(URI.create("protocol://test7.org"));
+
+        assertNotNull("OAuth2SaslClient is null", saslClient);
+
+        SaslServer saslServer = new SaslServerBuilder(OAuth2SaslServerFactory.class, SaslMechanismInformation.Names.OAUTHBEARER)
+                .setServerName("resourceserver.comn")
+                .setProtocol("imap")
+                .addRealm("oauth-realm", createSecurityRealmMock())
+                .setDefaultRealmName("oauth-realm")
+                .build();
+
+        byte[] message = AbstractSaslParticipant.NO_BYTES;
+
+        message = saslClient.evaluateChallenge(message);
+
+        try {
+            message = saslServer.evaluateResponse(message);
+        } catch (SaslException e) {
+            assertTrue(e.getCause() instanceof RealmUnavailableException);
+            RealmUnavailableException cause = (RealmUnavailableException) e.getCause();
+            assertTrue(cause.getMessage().contains("ELY01115"));
+        }
     }
 
     @Test

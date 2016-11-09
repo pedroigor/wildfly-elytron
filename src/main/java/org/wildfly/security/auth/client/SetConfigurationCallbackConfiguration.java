@@ -33,7 +33,7 @@ class SetConfigurationCallbackConfiguration extends AuthenticationConfiguration 
     private final CallbackHandler callbackHandler;
 
     SetConfigurationCallbackConfiguration(final AuthenticationConfiguration parent, final CallbackHandler callbackHandler) {
-        super(parent.without(SetBearerTokenCredentialAuthenticationConfiguration.class));
+        super(parent);
         this.callbackHandler = callbackHandler;
     }
 

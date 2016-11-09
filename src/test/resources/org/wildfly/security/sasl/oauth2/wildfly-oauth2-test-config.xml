@@ -55,9 +55,15 @@
                 <set-bearer-token name="oauth2-invalid-client-credentials"/>
                 <allow-sasl-mechanisms names="OAUTHBEARER"/>
             </rule>
+            <rule>
+                <match-host name="test7.org"/>
+                <set-bearer-token name="bad-jwt-bearer-token"/>
+                <allow-sasl-mechanisms names="OAUTHBEARER"/>
+            </rule>
         </rules>
         <bearer-tokens>
             <bearer-token name="user-provided" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaXNzIjoiYXV0aC5zZXJ2ZXIiLCJhdWQiOiJmb3JfbWUiLCJleHAiOjE3NjA5OTE2MzUsInByZWZlcnJlZF91c2VybmFtZSI6Impkb2UifQ.SoPW41_mOFnKXdkwVG63agWQ2k09dEnEtTBztnxHN64"/>
+            <bearer-token name="bad-jwt-bearer-token" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bad_claims.SoPW41_mOFnKXdkwVG63agWQ2k09dEnEtTBztnxHN64"/>
             <oauth2-bearer-token name="oauth2-resource-owner-credentials" token-endpoint-uri="http://localhost:50831/token">
                 <client-secret-basic id="elytron-client" secret="dont_tell_me_ro"/>
                 <resource-owner-credentials/>
