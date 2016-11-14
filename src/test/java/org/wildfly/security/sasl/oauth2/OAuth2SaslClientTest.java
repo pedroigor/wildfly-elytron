@@ -24,7 +24,6 @@ import static org.junit.Assert.fail;
 
 import javax.json.Json;
 import javax.json.JsonObjectBuilder;
-import javax.security.auth.callback.Callback;
 import javax.security.sasl.SaslClient;
 import javax.security.sasl.SaslClientFactory;
 import javax.security.sasl.SaslException;
@@ -41,9 +40,6 @@ import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.wildfly.security.auth.callback.AuthenticationConfigurationCallback;
-import org.wildfly.security.auth.callback.CredentialCallback;
-import org.wildfly.security.auth.callback.OAuth2ResourceOwnerCredentialsCallbackHandler;
 import org.wildfly.security.auth.client.AuthenticationConfiguration;
 import org.wildfly.security.auth.client.AuthenticationContext;
 import org.wildfly.security.auth.client.AuthenticationContextConfigurationClient;
@@ -51,7 +47,6 @@ import org.wildfly.security.auth.realm.token.TokenSecurityRealm;
 import org.wildfly.security.auth.realm.token.validator.JwtValidator;
 import org.wildfly.security.auth.server.RealmUnavailableException;
 import org.wildfly.security.auth.server.SecurityRealm;
-import org.wildfly.security.credential.BearerTokenCredential;
 import org.wildfly.security.sasl.test.BaseTestCase;
 import org.wildfly.security.sasl.test.SaslServerBuilder;
 import org.wildfly.security.sasl.util.AbstractSaslParticipant;
@@ -86,24 +81,13 @@ public class OAuth2SaslClientTest extends BaseTestCase {
     }
 
     @Test
-    public void testWithResourceOwnerCredentialsUsingAPI() throws Exception {
-        OAuth2ResourceOwnerCredentialsCallbackHandler callbackHandler = new OAuth2ResourceOwnerCredentialsCallbackHandler(tokenEndpoint, "elytron-client", "dont_tell_me_ro");
-        AuthenticationConfiguration configuration = AuthenticationConfiguration.EMPTY
-                .useName("alice").usePassword("dont_tell_me")
-                .allowSaslMechanisms(SaslMechanismInformation.Names.OAUTHBEARER);
-        CredentialCallback credentialCallback = new CredentialCallback(BearerTokenCredential.class);
-
-        callbackHandler.handle(new Callback[] {new AuthenticationConfigurationCallback(configuration), credentialCallback});
-
-        BearerTokenCredential credential = credentialCallback.getCredential(BearerTokenCredential.class);
-
-        assertNotNull(credential);
-
-        configuration = configuration.useBearerTokenCredential(credential);
-
+    public void testWithResourceOwnerCredentialsWithCallback() throws Exception {
+        URI serverUri = URI.create("protocol://test4.org");
+        AuthenticationContext context = AuthenticationContext.getContextManager().get();
         AuthenticationContextConfigurationClient contextConfigurationClient = AccessController.doPrivileged(AuthenticationContextConfigurationClient.ACTION);
+        AuthenticationConfiguration authenticationConfiguration = contextConfigurationClient.getAuthenticationConfiguration(serverUri, context);
         SaslClientFactory saslClientFactory = obtainSaslClientFactory(OAuth2SaslClientFactory.class);
-        SaslClient saslClient = contextConfigurationClient.createSaslClient(tokenEndpoint, configuration, saslClientFactory, Arrays.asList(SaslMechanismInformation.Names.OAUTHBEARER));
+        SaslClient saslClient = contextConfigurationClient.createSaslClient(serverUri, authenticationConfiguration, saslClientFactory, Arrays.asList(SaslMechanismInformation.Names.OAUTHBEARER));
 
         assertNotNull("OAuth2SaslClient is null", saslClient);
 
@@ -153,39 +137,6 @@ public class OAuth2SaslClientTest extends BaseTestCase {
     }
 
     @Test
-    public void testWithResourceOwnerCredentialsWithCallback() throws Exception {
-        URI serverUri = URI.create("protocol://test4.org");
-        AuthenticationContext context = AuthenticationContext.getContextManager().get();
-        AuthenticationContextConfigurationClient contextConfigurationClient = AccessController.doPrivileged(AuthenticationContextConfigurationClient.ACTION);
-        AuthenticationConfiguration authenticationConfiguration = contextConfigurationClient.getAuthenticationConfiguration(serverUri, context);
-        SaslClientFactory saslClientFactory = obtainSaslClientFactory(OAuth2SaslClientFactory.class);
-
-        authenticationConfiguration = authenticationConfiguration.useName("alice").usePassword("dont_tell_me".toCharArray());
-
-        SaslClient saslClient = contextConfigurationClient.createSaslClient(serverUri, authenticationConfiguration, saslClientFactory, Arrays.asList(SaslMechanismInformation.Names.OAUTHBEARER));
-
-        assertNotNull("OAuth2SaslClient is null", saslClient);
-
-        SaslServer saslServer = new SaslServerBuilder(OAuth2SaslServerFactory.class, SaslMechanismInformation.Names.OAUTHBEARER)
-                .setServerName("resourceserver.comn")
-                .setProtocol("imap")
-                .addRealm("oauth-realm", createSecurityRealmMock())
-                .setDefaultRealmName("oauth-realm")
-                .build();
-
-        byte[] message = AbstractSaslParticipant.NO_BYTES;
-
-        do {
-            message = saslClient.evaluateChallenge(message);
-            if (message == null) break;
-            message = saslServer.evaluateResponse(message);
-        } while (message != null);
-
-        assertTrue(saslServer.isComplete());
-        assertTrue(saslClient.isComplete());
-    }
-
-    @Test
     public void testWithBearerTokenFromConfiguration() throws Exception {
         SaslClient saslClient = createSaslClientFromConfiguration(URI.create("protocol://test5.org"));
 
@@ -211,34 +162,13 @@ public class OAuth2SaslClientTest extends BaseTestCase {
     }
 
     @Test
-    public void failedWithBearerTokenFromConfiguration() throws Exception {
-        SaslClient saslClient = createSaslClientFromConfiguration(URI.create("protocol://test7.org"));
-
-        assertNotNull("OAuth2SaslClient is null", saslClient);
-
-        SaslServer saslServer = new SaslServerBuilder(OAuth2SaslServerFactory.class, SaslMechanismInformation.Names.OAUTHBEARER)
-                .setServerName("resourceserver.comn")
-                .setProtocol("imap")
-                .addRealm("oauth-realm", createSecurityRealmMock())
-                .setDefaultRealmName("oauth-realm")
-                .build();
-
-        byte[] message = AbstractSaslParticipant.NO_BYTES;
-
-        message = saslClient.evaluateChallenge(message);
-
-        try {
-            message = saslServer.evaluateResponse(message);
-        } catch (SaslException e) {
-            assertTrue(e.getCause() instanceof RealmUnavailableException);
-            RealmUnavailableException cause = (RealmUnavailableException) e.getCause();
-            assertTrue(cause.getMessage().contains("ELY01115"));
-        }
-    }
-
-    @Test
     public void failedResourceOwnerCredentialsUsingConfiguration() throws Exception {
-        SaslClient saslClient = createSaslClientFromConfiguration(URI.create("protocol://test3.org"));
+        URI serverUri = URI.create("protocol://test3.org");
+        AuthenticationContext context = AuthenticationContext.getContextManager().get();
+        AuthenticationContextConfigurationClient contextConfigurationClient = AccessController.doPrivileged(AuthenticationContextConfigurationClient.ACTION);
+        AuthenticationConfiguration authenticationConfiguration = contextConfigurationClient.getAuthenticationConfiguration(serverUri, context);
+        SaslClientFactory saslClientFactory = obtainSaslClientFactory(OAuth2SaslClientFactory.class);
+        SaslClient saslClient = contextConfigurationClient.createSaslClient(serverUri, authenticationConfiguration, saslClientFactory, Arrays.asList(SaslMechanismInformation.Names.OAUTHBEARER));
 
         assertNotNull("OAuth2SaslClient is null", saslClient);
 
@@ -261,6 +191,32 @@ public class OAuth2SaslClientTest extends BaseTestCase {
         } catch (Exception e) {
             e.printStackTrace();
             assertTrue(e.getCause().getMessage().contains("ELY03030"));
+        }
+    }
+
+    @Test
+    public void failedWithBearerTokenFromConfiguration() throws Exception {
+        SaslClient saslClient = createSaslClientFromConfiguration(URI.create("protocol://test7.org"));
+
+        assertNotNull("OAuth2SaslClient is null", saslClient);
+
+        SaslServer saslServer = new SaslServerBuilder(OAuth2SaslServerFactory.class, SaslMechanismInformation.Names.OAUTHBEARER)
+                .setServerName("resourceserver.comn")
+                .setProtocol("imap")
+                .addRealm("oauth-realm", createSecurityRealmMock())
+                .setDefaultRealmName("oauth-realm")
+                .build();
+
+        byte[] message = AbstractSaslParticipant.NO_BYTES;
+
+        message = saslClient.evaluateChallenge(message);
+
+        try {
+            message = saslServer.evaluateResponse(message);
+        } catch (SaslException e) {
+            assertTrue(e.getCause() instanceof RealmUnavailableException);
+            RealmUnavailableException cause = (RealmUnavailableException) e.getCause();
+            assertTrue(cause.getMessage().contains("ELY01115"));
         }
     }
 

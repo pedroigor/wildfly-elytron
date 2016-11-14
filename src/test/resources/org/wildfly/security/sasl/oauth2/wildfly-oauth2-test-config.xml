@@ -22,13 +22,6 @@
     <authentication-client xmlns="urn:elytron:1.0">
         <rules>
             <rule>
-                <match-host name="test1.org"/>
-                <set-bearer-token name="oauth2-resource-owner-credentials"/>
-                <set-user-name name="alice"/>
-                <clear-password password="dont_tell_me"/>
-                <allow-sasl-mechanisms names="OAUTHBEARER"/>
-            </rule>
-            <rule>
                 <match-host name="test2.org"/>
                 <set-bearer-token name="oauth2-client-credentials"/>
                 <allow-sasl-mechanisms names="OAUTHBEARER"/>
@@ -36,14 +29,16 @@
             <rule>
                 <match-host name="test3.org"/>
                 <set-bearer-token name="oauth2-resource-owner-credentials"/>
-                <set-user-name name="alice"/>
-                <clear-password password="wrong_password"/>
                 <allow-sasl-mechanisms names="OAUTHBEARER"/>
+                <set-user-name name="alice"/>
+                <clear-password password="bad_password"/>
             </rule>
             <rule>
                 <match-host name="test4.org"/>
                 <set-bearer-token name="oauth2-resource-owner-credentials"/>
                 <allow-sasl-mechanisms names="OAUTHBEARER"/>
+                <set-user-name name="alice"/>
+                <clear-password password="dont_tell_me"/>
             </rule>
             <rule>
                 <match-host name="test5.org"/>
