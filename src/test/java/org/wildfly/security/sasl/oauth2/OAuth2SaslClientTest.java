@@ -260,7 +260,7 @@ public class OAuth2SaslClientTest extends BaseTestCase {
             fail("Expected bad response from server");
         } catch (Exception e) {
             e.printStackTrace();
-            assertTrue(e.getCause().getMessage().contains("ELY03025"));
+            assertTrue(e.getCause().getMessage().contains("ELY03030"));
         }
     }
 
@@ -289,7 +289,7 @@ public class OAuth2SaslClientTest extends BaseTestCase {
             fail("Expected bad response from server");
         } catch (Exception e) {
             e.printStackTrace();
-            assertTrue(e.getCause().getMessage().contains("ELY03025"));
+            assertTrue(e.getCause().getMessage().contains("ELY03030"));
         }
     }
 

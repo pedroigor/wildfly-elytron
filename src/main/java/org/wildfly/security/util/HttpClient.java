@@ -183,6 +183,7 @@ public final class HttpClient {
                 connection = openConnection();
                 connection.setDoOutput(true);
                 connection.setRequestMethod(method);
+                connection.setInstanceFollowRedirects(false);
 
                 for (HttpHeader header : headers) {
                     connection.setRequestProperty(header.getName(), header.getValue());
