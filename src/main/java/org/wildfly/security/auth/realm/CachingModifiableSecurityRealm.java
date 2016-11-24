@@ -51,6 +51,7 @@ public class CachingModifiableSecurityRealm extends  CachingSecurityRealm<Modifi
 
     @Override
     public CloseableIterator<ModifiableRealmIdentity> getRealmIdentityIterator() throws RealmUnavailableException {
+        removeAllFromCache();
         return getRealm().getRealmIdentityIterator();
     }
 }
