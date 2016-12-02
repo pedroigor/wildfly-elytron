@@ -77,6 +77,7 @@ import org.wildfly.security.auth.server.IdentityCredentials;
 import org.wildfly.security.auth.server.NameRewriter;
 import org.wildfly.security.auth.util.ElytronAuthenticator;
 import org.wildfly.security.auth.util.RegexNameRewriter;
+import org.wildfly.security.credential.BearerTokenCredential;
 import org.wildfly.security.credential.KeyPairCredential;
 import org.wildfly.security.credential.PasswordCredential;
 import org.wildfly.security.credential.PublicKeyCredential;
@@ -84,6 +85,7 @@ import org.wildfly.security.credential.X509CertificateChainPrivateCredential;
 import org.wildfly.security.credential.source.CredentialSource;
 import org.wildfly.security.credential.source.CredentialStoreCredentialSource;
 import org.wildfly.security.credential.source.KeyStoreCredentialSource;
+import org.wildfly.security.credential.source.OAuth2CredentialSource;
 import org.wildfly.security.credential.store.CredentialStore;
 import org.wildfly.security.keystore.PasswordEntry;
 import org.wildfly.security.keystore.WrappingPasswordKeyStore;
@@ -772,7 +774,8 @@ public final class ElytronXmlParser {
                         break;
                     }
                     case "clear-password": {
-                        function = andThenOp(function, credentialSource -> credentialSource.with(IdentityCredentials.NONE.withCredential(new PasswordCredential(ClearPassword.createRaw(ClearPassword.ALGORITHM_CLEAR, parseClearPassword(reader))))));
+                        char[] password = parseClearPassword(reader);
+                        function = andThenOp(function, credentialSource -> credentialSource.with(IdentityCredentials.NONE.withCredential(new PasswordCredential(ClearPassword.createRaw(ClearPassword.ALGORITHM_CLEAR, password)))));
                         break;
                     }
                     case "hashed-password": {
@@ -793,6 +796,16 @@ public final class ElytronXmlParser {
                     }
                     case "public-key-pem": {
                         function = andThenOp(function, credentialSource -> credentialSource.with(IdentityCredentials.NONE.withCredential(new PublicKeyCredential(parsePem(reader, PublicKey.class)))));
+                        break;
+                    }
+                    case "bearer-token": {
+                        ExceptionSupplier<CredentialSource, ConfigXMLParseException> store = parseBearerTokenType(reader);
+                        function = andThenOp(function, credentialSource -> credentialSource.with(store.get()));
+                        break;
+                    }
+                    case "oauth2-bearer-token": {
+                        ExceptionSupplier<CredentialSource, ConfigXMLParseException> store = parseOAuth2BearerTokenType(reader);
+                        function = andThenOp(function, credentialSource -> credentialSource.with(store.get()));
                         break;
                     }
                     default: {
@@ -1903,6 +1916,128 @@ public final class ElytronXmlParser {
             }
         }
 
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code bearer-token-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    static ExceptionSupplier<CredentialSource, ConfigXMLParseException> parseBearerTokenType(ConfigurationXMLStreamReader reader) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        String value = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            checkAttributeNamespace(reader, i);
+            switch (reader.getAttributeLocalName(i)) {
+                case "value": {
+                    if (value != null) throw reader.unexpectedAttribute(i);
+                    value = reader.getAttributeValue(i);
+                    break;
+                }
+                default:
+            }
+        }
+        if (value == null) {
+            throw missingAttribute(reader, "value");
+        }
+        final BearerTokenCredential credential = new BearerTokenCredential(value);
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                throw reader.unexpectedElement();
+            } else if (tag == END_ELEMENT) {
+                return () -> IdentityCredentials.NONE.withCredential(credential);
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code oauth2-bearer-token-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    static ExceptionSupplier<CredentialSource, ConfigXMLParseException> parseOAuth2BearerTokenType(ConfigurationXMLStreamReader reader) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        URI tokenEndpointUri = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            checkAttributeNamespace(reader, i);
+            switch (reader.getAttributeLocalName(i)) {
+                case "token-endpoint-uri": {
+                    if (tokenEndpointUri != null) throw reader.unexpectedAttribute(i);
+                    tokenEndpointUri = reader.getURIAttributeValue(i);
+                    break;
+                }
+                default: throw reader.unexpectedAttribute(i);
+            }
+        }
+        if (tokenEndpointUri == null) {
+            throw missingAttribute(reader, "token-endpoint-uri");
+        }
+        OAuth2CredentialSource.Builder builder = OAuth2CredentialSource.builder(tokenEndpointUri);
+        ExceptionSupplier<CredentialSource, ConfigXMLParseException> source = () -> builder.build();
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                checkElementNamespace(reader);
+                switch (reader.getLocalName()) {
+                    case "resource-owner-credentials": {
+                        source = parseOAuth2ResourceOwnerCredentials(reader, tokenEndpointUri);
+                        break;
+                    }
+                    default: throw reader.unexpectedElement();
+                }
+            } else if (tag == END_ELEMENT) {
+                return source;
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
+        throw reader.unexpectedDocumentEnd();
+    }
+
+    /**
+     * Parse an XML element of type {@code oauth2-bearer-token-type} from an XML reader.
+     *
+     * @param reader the XML stream reader
+     * @param bearerTokensMap the map of bearer tokens to use
+     * @throws ConfigXMLParseException if the resource failed to be parsed
+     */
+    static ExceptionSupplier<CredentialSource, ConfigXMLParseException> parseOAuth2ResourceOwnerCredentials(ConfigurationXMLStreamReader reader, URI tokenEndpointUri) throws ConfigXMLParseException {
+        final int attributeCount = reader.getAttributeCount();
+        URI resourceServerUri = null;
+        for (int i = 0; i < attributeCount; i ++) {
+            checkAttributeNamespace(reader, i);
+            switch (reader.getAttributeLocalName(i)) {
+                case "resource-server-uri": {
+                    if (resourceServerUri != null) throw reader.unexpectedAttribute(i);
+                    resourceServerUri = reader.getURIAttributeValue(i);
+                    break;
+                }
+                default: throw reader.unexpectedAttribute(i);
+            }
+        }
+        if (resourceServerUri == null) {
+            throw missingAttribute(reader, "resource-server-uri");
+        }
+        OAuth2CredentialSource.Builder builder = OAuth2CredentialSource.builder(tokenEndpointUri).useResourceOwnerPassword(resourceServerUri);
+        while (reader.hasNext()) {
+            final int tag = reader.nextTag();
+            if (tag == START_ELEMENT) {
+                throw reader.unexpectedElement();
+            } else if (tag == END_ELEMENT) {
+                return () -> builder.build();
+            } else {
+                throw reader.unexpectedContent();
+            }
+        }
         throw reader.unexpectedDocumentEnd();
     }
 

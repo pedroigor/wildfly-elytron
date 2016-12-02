@@ -104,7 +104,18 @@ public final class ElytronAuthenticator extends Authenticator {
                 }
             }
         } catch (IOException | NoSuchAlgorithmException | InvalidKeySpecException e) {
-            return null;
+            if (e instanceof InvalidKeySpecException) {
+                // try again with a password callback
+                final PasswordCallback passwordCallback = new PasswordCallback("Password", false);
+                try {
+                    callbackHandler.handle(new Callback[] { nameCallback, passwordCallback });
+                    password = passwordCallback.getPassword();
+                } catch (IOException | UnsupportedCallbackException e1) {
+                    return null;
+                }
+            } else {
+                return null;
+            }
         }
         final String name = nameCallback.getName();
         if (name == null || password == null) return null;
