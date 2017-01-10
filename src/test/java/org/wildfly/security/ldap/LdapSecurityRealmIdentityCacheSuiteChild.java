@@ -105,7 +105,7 @@ public class LdapSecurityRealmIdentityCacheSuiteChild {
 
         dirContext.destroySubcontext("uid=userToRemove,dc=elytron,dc=wildfly,dc=org");
 
-        waitServerNotification.await(5, TimeUnit.SECONDS);
+        waitServerNotification.await(3, TimeUnit.SECONDS);
 
         ServerAuthenticationContext sac = createServerAuthenticationContext("userToRemove", securityDomain);
 
