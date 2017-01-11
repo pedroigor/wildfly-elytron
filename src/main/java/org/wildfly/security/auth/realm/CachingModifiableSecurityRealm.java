@@ -19,13 +19,21 @@
 package org.wildfly.security.auth.realm;
 
 import java.security.Principal;
+import java.util.Collection;
+import java.util.function.Function;
 
+import org.wildfly.common.function.ExceptionConsumer;
+import org.wildfly.security.auth.SupportLevel;
 import org.wildfly.security.auth.server.CloseableIterator;
 import org.wildfly.security.auth.server.ModifiableRealmIdentity;
 import org.wildfly.security.auth.server.ModifiableSecurityRealm;
 import org.wildfly.security.auth.server.RealmIdentity;
 import org.wildfly.security.auth.server.RealmUnavailableException;
+import org.wildfly.security.authz.Attributes;
+import org.wildfly.security.authz.AuthorizationIdentity;
 import org.wildfly.security.cache.RealmIdentityCache;
+import org.wildfly.security.credential.Credential;
+import org.wildfly.security.evidence.Evidence;
 
 /**
  * <p>A wrapper class that provides caching capabilities for a {@link org.wildfly.security.auth.server.ModifiableSecurityRealm} and its identities.
@@ -46,14 +54,122 @@ public class CachingModifiableSecurityRealm extends CachingSecurityRealm impleme
 
     @Override
     public ModifiableRealmIdentity getRealmIdentityForUpdate(Principal principal) throws RealmUnavailableException {
-        removeFromCache(principal);
-        return getModifiableSecurityRealm().getRealmIdentityForUpdate(principal);
+        return wrap(getModifiableSecurityRealm().getRealmIdentityForUpdate(principal));
     }
 
     @Override
     public CloseableIterator<ModifiableRealmIdentity> getRealmIdentityIterator() throws RealmUnavailableException {
-        removeAllFromCache();
-        return getModifiableSecurityRealm().getRealmIdentityIterator();
+        CloseableIterator<ModifiableRealmIdentity> iterator = getModifiableSecurityRealm().getRealmIdentityIterator();
+        return new CloseableIterator<ModifiableRealmIdentity>() {
+            @Override
+            public boolean hasNext() {
+                return iterator.hasNext();
+            }
+
+            @Override
+            public ModifiableRealmIdentity next() {
+                return wrap(iterator.next());
+            }
+        };
+    }
+
+    private ModifiableRealmIdentity wrap(final ModifiableRealmIdentity modifiable) {
+        return new ModifiableRealmIdentity() {
+            @Override
+            public void delete() throws RealmUnavailableException {
+                executeAndInvalidate(modifiable -> { modifiable.delete(); });
+            }
+
+            @Override
+            public void create() throws RealmUnavailableException {
+                modifiable.create();
+            }
+
+            @Override
+            public void setCredentials(Collection<? extends Credential> credentials) throws RealmUnavailableException {
+                executeAndInvalidate(modifiable -> { modifiable.setCredentials(credentials); });
+            }
+
+            @Override
+            public void setAttributes(Attributes attributes) throws RealmUnavailableException {
+                executeAndInvalidate(modifiable -> { modifiable.setAttributes(attributes); });
+            }
+
+            @Override
+            public SupportLevel getCredentialAcquireSupport(Class<? extends Credential> credentialType, String algorithmName) throws RealmUnavailableException {
+                return modifiable.getCredentialAcquireSupport(credentialType, algorithmName);
+            }
+
+            @Override
+            public <C extends Credential> C getCredential(Class<C> credentialType) throws RealmUnavailableException {
+                return modifiable.getCredential(credentialType);
+            }
+
+            @Override
+            public SupportLevel getEvidenceVerifySupport(Class<? extends Evidence> evidenceType, String algorithmName) throws RealmUnavailableException {
+                return modifiable.getEvidenceVerifySupport(evidenceType, algorithmName);
+            }
+
+            @Override
+            public boolean verifyEvidence(Evidence evidence) throws RealmUnavailableException {
+                return modifiable.verifyEvidence(evidence);
+            }
+
+            @Override
+            public boolean exists() throws RealmUnavailableException {
+                return modifiable.exists();
+            }
+
+            @Override
+            public void updateCredential(Credential credential) throws RealmUnavailableException {
+                executeAndInvalidate(modifiable -> { modifiable.updateCredential(credential); });
+            }
+
+            @Override
+            public Principal getRealmIdentityPrincipal() {
+                return modifiable.getRealmIdentityPrincipal();
+            }
+
+            @Override
+            public <C extends Credential> C getCredential(Class<C> credentialType, String algorithmName) throws RealmUnavailableException {
+                return modifiable.getCredential(credentialType, algorithmName);
+            }
+
+            @Override
+            public <C extends Credential, R> R applyToCredential(Class<C> credentialType, Function<C, R> function) throws RealmUnavailableException {
+                return modifiable.applyToCredential(credentialType, function);
+            }
+
+            @Override
+            public <C extends Credential, R> R applyToCredential(Class<C> credentialType, String algorithmName, Function<C, R> function) throws RealmUnavailableException {
+                return modifiable.applyToCredential(credentialType, algorithmName, function);
+            }
+
+            @Override
+            public void dispose() {
+                modifiable.dispose();
+            }
+
+            @Override
+            public AuthorizationIdentity getAuthorizationIdentity() throws RealmUnavailableException {
+                return modifiable.getAuthorizationIdentity();
+            }
+
+            @Override
+            public Attributes getAttributes() throws RealmUnavailableException {
+                return modifiable.getAttributes();
+            }
+
+            private void executeAndInvalidate(ExceptionConsumer<ModifiableRealmIdentity, RealmUnavailableException> operation) throws RealmUnavailableException {
+                try {
+                    operation.accept(modifiable);
+                } catch (RealmUnavailableException rue) {
+                    throw rue;
+                } finally {
+                    removeFromCache(modifiable.getRealmIdentityPrincipal());
+                }
+            }
+        };
     }
 
     private ModifiableSecurityRealm getModifiableSecurityRealm() {

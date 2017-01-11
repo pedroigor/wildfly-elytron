@@ -4,8 +4,11 @@ import static org.wildfly.common.Assert.checkMinimumParameter;
 
 import java.security.Principal;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import org.wildfly.security.auth.server.RealmIdentity;
 
@@ -25,6 +28,7 @@ public final class LRURealmIdentityCache implements RealmIdentityCache {
      * The cached entries
      */
     private final Map<Principal, RealmIdentity> cache;
+    private final Map<Principal, Set<Principal>> realmCache;
 
     public LRURealmIdentityCache(int maxEntries) {
         checkMinimumParameter("maxEntries", 1, maxEntries);
@@ -34,21 +38,47 @@ public final class LRURealmIdentityCache implements RealmIdentityCache {
                 return cache.size()  > maxEntries;
             }
         });
+        realmCache = Collections.synchronizedMap(new HashMap<Principal, Set<Principal>>(16));
     }
 
     @Override
     public void put(Principal key, RealmIdentity newValue) {
-        cache.computeIfAbsent(key, principal -> newValue);
+        RealmIdentity realmIdentity = cache.computeIfAbsent(key, principal -> {
+            HashSet<Principal> principals = new HashSet<>();
+            principals.add(key);
+            realmCache.putIfAbsent(newValue.getRealmIdentityPrincipal(), principals);
+            return newValue;
+        });
+
+        if (realmIdentity != null) {
+            realmCache.get(realmIdentity.getRealmIdentityPrincipal()).add(key);
+        }
     }
 
     @Override
     public RealmIdentity get(Principal key) {
-        return cache.get(key);
+        RealmIdentity cached = cache.get(key);
+
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<Principal> domainPrincipal = realmCache.get(key);
+
+        if (domainPrincipal != null) {
+            return cache.get(domainPrincipal.iterator().next());
+        }
+
+        return null;
     }
 
     @Override
     public void remove(Principal key) {
-        cache.remove(key);
+        if (cache.containsKey(key)) {
+            realmCache.remove(cache.remove(key).getRealmIdentityPrincipal()).forEach(principal -> cache.remove(principal));
+        } else if (realmCache.containsKey(key)) {
+            realmCache.remove(key).forEach(cache::remove);
+        }
     }
 
     @Override
