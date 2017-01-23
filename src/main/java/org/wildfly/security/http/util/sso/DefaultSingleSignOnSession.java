@@ -47,6 +47,7 @@ import org.wildfly.security.http.Scope;
  * <br/>
  * This implementation supports single logout in order to invalidate local sessions for each participant of a single sign-on session, where participants
  * represent the applications with active sessions associated with a given single sign-on session.
+ *
  * @author Paul Ferraro
  */
 public class DefaultSingleSignOnSession implements SingleSignOnSession {
@@ -117,11 +118,12 @@ public class DefaultSingleSignOnSession implements SingleSignOnSession {
                         }
 
                         Collection<Map.Entry<String, URI>> participants = target.getParticipants();
-                        if (participants.isEmpty()) {
-                            log.debugf("Destroying SSO [%s]. SSO is not associated with participants", target.getId());
-                            target.invalidate();
-                        } else {
-                            if (notification.isOfType(INVALIDATED) && !invalidating) {
+
+                        // only destroy sso session if the node started the logout
+                        if (!invalidating) {
+                            if (notification.isOfType(INVALIDATED)) {
+                                // close sso to release any resource prior to start sending logout requests
+                                target.close();
                                 // If session was invalidated, logout remote participants
                                 participants.forEach(participant -> {
                                     String remoteSessionId = participant.getKey();
@@ -156,8 +158,16 @@ public class DefaultSingleSignOnSession implements SingleSignOnSession {
                                         log.warnHttpMechSsoFailedLogoutParticipant(remoteURI.toString(), cause);
                                     }
                                 });
-                                target.invalidate();
                             }
+
+                            SingleSignOn singleSignOn = this.context.getSingleSignOnManagerManager().find(id);
+
+                            if (singleSignOn == null) {
+                                throw log.httpMechSsoInvalidLogoutMessage(id);
+
+                            }
+
+                            singleSignOn.invalidate();
                         }
                     }
                 }
