@@ -47,11 +47,12 @@ import org.wildfly.security.http.Scope;
  * <br/>
  * This implementation supports single logout in order to invalidate local sessions for each participant of a single sign-on session, where participants
  * represent the applications with active sessions associated with a given single sign-on session.
+ *
  * @author Paul Ferraro
  */
 public class DefaultSingleSignOnSession implements SingleSignOnSession {
     private static final String LOGOUT_REQUEST_PARAMETER = "ely_logout_message";
-    private static final String SESSION_INVALIDATING_ATTRIBUTE = DefaultSingleSignOnSessionFactory.class.getName() + ".INVALIDATING";
+    private static final String LOCAL_SESSION_INVALIDATION_ATTRIBUTE = DefaultSingleSignOnSessionFactory.class.getName() + ".LOCAL_INVALIDATION";
     private static final Boolean SINGLE_SIGN_ON_KEY = Boolean.TRUE;
 
     private final HttpServerRequest request;
@@ -107,7 +108,7 @@ public class DefaultSingleSignOnSession implements SingleSignOnSession {
 
             scope.registerForNotification(notification -> {
                 HttpScope sessionScope = notification.getScope(Scope.SESSION);
-                boolean invalidating = sessionScope.getAttachment(SESSION_INVALIDATING_ATTRIBUTE) != null;
+                boolean invalidating = sessionScope.getAttachment(LOCAL_SESSION_INVALIDATION_ATTRIBUTE) != null;
 
                 try (SingleSignOn target = this.context.getSingleSignOnManagerManager().find(id)) {
                     if (target != null) {
@@ -117,11 +118,14 @@ public class DefaultSingleSignOnSession implements SingleSignOnSession {
                         }
 
                         Collection<Map.Entry<String, URI>> participants = target.getParticipants();
-                        if (participants.isEmpty()) {
-                            log.debugf("Destroying SSO [%s]. SSO is not associated with participants", target.getId());
-                            target.invalidate();
-                        } else {
-                            if (notification.isOfType(INVALIDATED) && !invalidating) {
+
+                        if (!invalidating) {
+                            if (participants.isEmpty()) {
+                                log.debugf("Destroying SSO [%s]. SSO is not associated with participants", target.getId());
+                                target.invalidate();
+                            } else if (notification.isOfType(INVALIDATED)) {
+                                // before calling participants we release any resource associated with the sso session
+                                target.close();
                                 // If session was invalidated, logout remote participants
                                 participants.forEach(participant -> {
                                     String remoteSessionId = participant.getKey();
@@ -156,7 +160,15 @@ public class DefaultSingleSignOnSession implements SingleSignOnSession {
                                         log.warnHttpMechSsoFailedLogoutParticipant(remoteURI.toString(), cause);
                                     }
                                 });
-                                target.invalidate();
+
+                                SingleSignOn singleSignOn = this.context.getSingleSignOnManagerManager().find(id);
+
+                                if (singleSignOn == null) {
+                                    throw log.httpMechSsoInvalidLogoutMessage(id);
+
+                                }
+
+                                singleSignOn.invalidate();
                             }
                         }
                     }
@@ -215,7 +227,7 @@ public class DefaultSingleSignOnSession implements SingleSignOnSession {
     }
 
     void invalidateLocalSession(HttpScope scope) {
-        scope.setAttachment(SESSION_INVALIDATING_ATTRIBUTE, true);
+        scope.setAttachment(LOCAL_SESSION_INVALIDATION_ATTRIBUTE, true);
         scope.invalidate();
         log.debugf("Local session [%s] invalidated for SSO [%s]", scope.getID(), this.getId());
     }
