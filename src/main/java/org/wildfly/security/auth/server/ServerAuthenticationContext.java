@@ -986,10 +986,10 @@ public final class ServerAuthenticationContext implements AutoCloseable {
                     try {
                         X509Certificate[] x509Certificates = X500.asX509CertificateArray(sslCallback.getSslSession().getPeerCertificates());
                         verifyEvidence(new X509PeerCertificateChainEvidence(x509Certificates));
-                        certs = x509Certificates;
                     } catch (SSLPeerUnverifiedException e) {
                         log.trace("Peer unverified", e);
                     }
+                    certs = X500.asX509CertificateArray(sslCallback.getSslSession().getLocalCertificates());
                     handleOne(callbacks, idx + 1);
                 } else if (callback instanceof ChannelBindingCallback) {
                     TLSServerEndPointChannelBinding.handleChannelBindingCallback((ChannelBindingCallback) callback, certs);
