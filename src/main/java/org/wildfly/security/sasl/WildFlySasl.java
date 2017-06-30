@@ -156,5 +156,9 @@ public final class WildFlySasl {
      */
     public static final String AUTHENTICATION_TIMEOUT = "wildfly.sasl.authentication-timeout";
 
+    /**
+     * The authentication method to use the EXTERNAL SASL mechanism
+     */
+    public static final String EXTERNAL_AUTHENTICATION_METHOD = "wildfly.sasl.external.authentication-method";
 
 }

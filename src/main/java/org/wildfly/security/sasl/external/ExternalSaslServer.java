@@ -23,6 +23,7 @@ import static org.wildfly.security._private.ElytronMessages.log;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
+import java.util.Map;
 
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.UnsupportedCallbackException;
@@ -39,11 +40,15 @@ import org.wildfly.security.util._private.Arrays2;
 final class ExternalSaslServer implements SaslServer {
 
     private final CallbackHandler cbh;
+    private Map<String, ?> props;
+    private ExternalSaslServerFactory.ExternalAuthentication authentication;
     private boolean complete;
     private String authorizationID;
 
-    ExternalSaslServer(final CallbackHandler cbh) {
+    ExternalSaslServer(final CallbackHandler cbh, Map<String, ?> props, ExternalSaslServerFactory.ExternalAuthentication authentication) {
         this.cbh = cbh;
+        this.props = props;
+        this.authentication = authentication;
     }
 
     public String getMechanismName() {
@@ -64,6 +69,7 @@ final class ExternalSaslServer implements SaslServer {
                 throw log.mechUserNameContainsInvalidCharacter(getMechanismName()).toSaslException();
             }
         }
+        authentication.perform(authorizationId, cbh, props);
         final AuthorizeCallback authorizeCallback = new AuthorizeCallback(null, authorizationId);
         try {
             cbh.handle(Arrays2.of(authorizeCallback));
